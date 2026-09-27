@@ -1,0 +1,195 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  USER
+  HELPER
+  ADMIN
+  HEAD_ADMIN
+  CO_OWNER
+  OWNER
+}
+
+enum OrderStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+  REFUNDED
+  CANCELLED
+  EXPIRED
+}
+
+enum PaymentProvider {
+  STRIPE
+}
+
+enum TicketCategory {
+  PAYMENT
+  ACCOUNT
+  MINECRAFT
+  BUG
+  OTHER
+}
+
+enum TicketStatus {
+  OPEN
+  IN_PROGRESS
+  CLOSED
+}
+
+model User {
+  id                   String          @id @default(cuid())
+  email                String          @unique
+  passwordHash         String
+  minecraftUsername    String          @unique
+  emailVerified        Boolean         @default(false)
+  emailVerificationToken String?
+  passwordResetToken   String?
+  passwordResetExpires DateTime?
+  role                 Role            @default(USER)
+  createdAt            DateTime        @default(now())
+  updatedAt            DateTime        @updatedAt
+
+  orders               Order[]
+  purchases            UserRank[]
+  tickets              Ticket[]
+  ticketMessages       TicketMessage[]
+  staffLogs            StaffLog[]      @relation("StaffActions")
+  staffLogsTarget      StaffLog[]      @relation("StaffTargets")
+
+  @@index([email])
+  @@index([minecraftUsername])
+}
+
+model Product {
+  id          String        @id @default(cuid())
+  name        String
+  description String
+  price       Int           // Price in cents
+  type        String        // "rank", "cosmetic", "bundle", etc.
+  active      Boolean       @default(true)
+  featured    Boolean       @default(false)
+  sortOrder   Int           @default(0)
+  metadata    Json?         // Additional product data (benefits, color, etc.)
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  orderItems  OrderItem[]
+  purchases   UserRank[]
+
+  @@index([active, featured])
+  @@index([type])
+}
+
+model Order {
+  id                String           @id @default(cuid())
+  userId            String
+  status            OrderStatus      @default(PENDING)
+  total             Int              // Total in cents
+  paymentProvider   PaymentProvider
+  paymentReference  String?          // Stripe session ID, payment intent ID, etc.
+  metadata          Json?
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+
+  user              User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  items             OrderItem[]
+
+  @@index([userId])
+  @@index([status])
+  @@index([paymentReference])
+}
+
+model OrderItem {
+  id        String   @id @default(cuid())
+  orderId   String
+  productId String
+  price     Int      // Price at time of purchase (in cents)
+  quantity  Int      @default(1)
+
+  order     Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@unique([orderId, productId])
+}
+
+model UserRank {
+  id        String   @id @default(cuid())
+  userId    String
+  productId String
+  grantedAt DateTime @default(now())
+  expiresAt DateTime? // Null = permanent
+  active    Boolean  @default(true)
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, productId])
+  @@index([userId, active])
+}
+
+model Ticket {
+  id        String         @id @default(cuid())
+  userId    String
+  category  TicketCategory
+  status    TicketStatus   @default(OPEN)
+  subject   String
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
+
+  user      User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  messages  TicketMessage[]
+
+  @@index([userId])
+  @@index([status])
+}
+
+model TicketMessage {
+  id        String     @id @default(cuid())
+  ticketId  String
+  userId    String
+  message   String
+  isStaff   Boolean    @default(false)
+  createdAt DateTime   @default(now())
+
+  ticket    Ticket     @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([ticketId])
+}
+
+model StaffLog {
+  id             String   @id @default(cuid())
+  staffUserId    String
+  action         String
+  targetUserId   String?
+  metadata       Json?
+  createdAt      DateTime @default(now())
+
+  staffUser      User     @relation("StaffActions", fields: [staffUserId], references: [id], onDelete: Cascade)
+  targetUser     User?    @relation("StaffTargets", fields: [targetUserId], references: [id], onDelete: SetNull)
+
+  @@index([staffUserId])
+  @@index([targetUserId])
+  @@index([createdAt])
+}
+
+model ServerStatus {
+  id            String   @id @default(cuid())
+  online        Boolean
+  playersOnline Int
+  playersMax    Int
+  version       String?
+  motd          String?
+  latency       Int?
+  checkedAt     DateTime @default(now())
+
+  @@index([checkedAt])
+}
